@@ -33,6 +33,10 @@ yarn-error.log*
 # env files (can opt-in for committing if needed)
 .env*
 
+# datos biométricos y resultados de evaluación (no subir al repo)
+/dataset
+/results
+
 # vercel
 .vercel
 
