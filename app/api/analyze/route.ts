@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { analyzeLiveness, DEFAULT_MODEL } from "@/lib/liveness";
 
 export const maxDuration = 60;
@@ -24,7 +25,12 @@ export async function POST(req: Request) {
 
   try {
     const bytes = new Uint8Array(await file.arrayBuffer());
-    return Response.json(await analyzeLiveness(bytes, file.type, model));
+
+    const sha = createHash("sha256").update(bytes).digest("hex").slice(0, 12);
+    const res = await analyzeLiveness(bytes, file.type, model);
+    console.log(`[liveness] ${file.type} ${file.size}B sha:${sha} -> ${res.result.verdict} ${res.result.spoofScore}`);
+
+    return Response.json(res);
   } catch (error) {
     console.error("Falló el análisis de liveness", error);
     return Response.json({ error: "Falló el análisis de liveness" }, { status: 502 });

@@ -1,90 +1,53 @@
-"use client"; // Necesario: usa la cámara y el canvas, que solo existen en el navegador
+"use client";
 
-import { useEffect, useRef } from "react";
-import { FaceDetector, FilesetResolver } from "@mediapipe/tasks-vision";
-
-const MODEL_URL =
-  "https://storage.googleapis.com/mediapipe-models/face_detector/blaze_face_short_range/float16/1/blaze_face_short_range.tflite";
-const WASM_URL = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision/wasm";
+import CameraCircle from "@/components/liveness/CameraCircle";
+import ScanPrompt from "@/components/liveness/ScanPrompt";
+import VerdictSummary from "@/components/liveness/VerdictSummary";
+import { analyzeShot } from "@/components/liveness/analyze";
+import { useLivenessCapture } from "@/components/liveness/useLivenessCapture";
 
 export default function FaceDetection() {
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const capture = useLivenessCapture({ analyze: analyzeShot });
+  const { phase, response } = capture;
 
-  useEffect(() => {
-    let detector: FaceDetector | null = null;
-    let stream: MediaStream | null = null;
-    let rafId = 0;
-    let cancelled = false;
-
-    async function start() {
-      const vision = await FilesetResolver.forVisionTasks(WASM_URL);
-
-      detector = await FaceDetector.createFromOptions(vision, {
-        baseOptions: { modelAssetPath: MODEL_URL, delegate: "GPU" },
-        runningMode: "VIDEO",
-      });
-
-      stream = await navigator.mediaDevices.getUserMedia({ video: true });
-      if (cancelled) return cleanup();
-
-      const video = videoRef.current!;
-      video.srcObject = stream;
-      await video.play();
-
-      detect();
-    }
-
-    function detect() {
-      const video = videoRef.current;
-      const canvas = canvasRef.current;
-      if (!video || !canvas || !detector) return;
-
-      if (canvas.width !== video.videoWidth) {
-        canvas.width = video.videoWidth;
-        canvas.height = video.videoHeight;
-      }
-
-      const ctx = canvas.getContext("2d")!;
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-      const { detections } = detector.detectForVideo(video, performance.now());
-      
-      for (const d of detections) {
-        const box = d.boundingBox;
-        if (!box) continue;
-        const score = Math.round(d.categories[0].score * 100);
-
-        ctx.strokeStyle = "#ED3815";
-        ctx.lineWidth = 4;
-        ctx.strokeRect(box.originX, box.originY, box.width, box.height);
-
-        ctx.fillStyle = "#ED3815";
-        ctx.font = "20px sans-serif";
-        ctx.fillText(`Rostro ${score}%`, box.originX, box.originY - 6);
-      }
-
-      rafId = requestAnimationFrame(detect);
-    }
-
-    function cleanup() {
-      cancelAnimationFrame(rafId);
-      stream?.getTracks().forEach((t) => t.stop());
-      detector?.close();
-    }
-
-    start();
-
-    return () => {
-      cancelled = true;
-      cleanup();
-    };
-  }, []);
+  const failed = phase === "denied" || phase === "error";
+  const aligned = phase === "scan" && capture.faces === 1 && capture.issue === "none";
 
   return (
-    <div className="relative">
-      <video ref={videoRef} playsInline muted className="rounded-lg" />
-      <canvas ref={canvasRef} className="absolute inset-0 w-full h-full" />
+    <div className="flex min-h-dvh flex-col items-center px-5 pt-[clamp(18px,2.5vh,44px)] pb-[clamp(24px,3vh,52px)]">
+      <div className="mb-[clamp(14px,2vh,34px)] flex items-center gap-2.5">
+        <span className="size-[7px] rounded-full bg-[#968ae0]" />
+        <span className="text-[11px] tracking-[.14em] text-[#9397ab] uppercase">Liveness · verificación de vida</span>
+      </div>
+
+      <CameraCircle
+        videoRef={capture.videoRef}
+        hasStream={capture.hasStream}
+        shot={capture.shot}
+        failed={failed}
+        analyzing={phase === "analyzing"}
+        aligned={aligned}
+        progress={capture.progress}
+        verdict={phase === "result" && response ? response.result.verdict : null}
+      />
+
+      <div className="mt-[clamp(14px,2vh,28px)] grid w-full max-w-[520px] justify-items-center gap-[9px] text-center">
+        {phase === "result" && response ? (
+          <VerdictSummary response={response} onRetry={capture.scan} onContinue={capture.stop} />
+        ) : (
+          phase !== "result" && (
+            <ScanPrompt
+              phase={phase}
+              faces={capture.faces}
+              issue={capture.issue}
+              aligned={aligned}
+              progress={capture.progress}
+              onStart={capture.start}
+              onStop={capture.stop}
+            />
+          )
+        )}
+      </div>
     </div>
   );
 }
