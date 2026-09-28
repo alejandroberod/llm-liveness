@@ -3,7 +3,19 @@ import type { FramingIssue } from "./types";
 
 export const ALIGN_OK = 0.7; // encuadre mínimo para acumular estabilidad
 
+// Tamaño del rostro aceptado (ancho del bbox / lado corto del video).
+// Bajar FACE_MIN deja alejarse más; bajar FACE_MAX obliga a no acercarse tanto.
+// Ojo: Silent Face recorta 2.7× el rostro, así que por encima de ~0.37 ese recorte ya no cabe en la imagen.
+const FACE_MIN = 0.22;
+const FACE_MAX = 0.5;
+
 export const clamp01 = (n: number) => Math.max(0, Math.min(1, n));
+
+// 1 dentro de [lo, hi]; fuera del rango cae por debajo de ALIGN_OK de inmediato, así los límites son estrictos
+const band = (n: number, lo: number, hi: number) => {
+  const outside = n < lo ? lo - n : n > hi ? n - hi : 0;
+  return outside === 0 ? 1 : clamp01(ALIGN_OK - 0.01 - outside / 0.1);
+};
 
 // Evalúa qué tan bien encuadrado está un rostro dentro del círculo (0 a 1).
 export function evaluateFraming(d: Detection, vw: number, vh: number): { align: number; issue: FramingIssue } {
@@ -18,7 +30,7 @@ export function evaluateFraming(d: Detection, vw: number, vh: number): { align: 
 
   // Tamaño: ancho del rostro respecto a la zona visible
   const ratio = box.width / side;
-  const size = ratio < 0.3 ? ratio / 0.3 : ratio > 0.8 ? clamp01(1 - (ratio - 0.8) / 0.3) : 1;
+  const size = band(ratio, FACE_MIN, FACE_MAX);
 
   // Frontalidad: la nariz debe quedar a medio camino entre los ojos (keypoints 0 y 1 = ojos, 2 = nariz)
   let front = 1;
@@ -34,7 +46,7 @@ export function evaluateFraming(d: Detection, vw: number, vh: number): { align: 
   const align = Math.min(center, size, front);
   let issue: FramingIssue = "none";
   if (align < ALIGN_OK) {
-    if (size === align) issue = ratio < 0.3 ? "far" : "near";
+    if (size === align) issue = ratio < FACE_MIN ? "far" : "near";
     else if (center === align) issue = "off";
     else issue = "turned";
   }

@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { FaceDetector, FilesetResolver } from "@mediapipe/tasks-vision";
 import { ALIGN_OK, clamp01, evaluateFraming } from "./framing";
-import type { FramingIssue, LivenessResponse, Phase } from "./types";
+import type { FramingIssue, Phase } from "./types";
 
 const MODEL_URL =
   "https://storage.googleapis.com/mediapipe-models/face_detector/blaze_face_short_range/float16/1/blaze_face_short_range.tflite";
@@ -12,12 +12,20 @@ const WASM_URL = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision/wasm";
 const HOLD_SECONDS = 1.2; // tiempo que el rostro debe mantenerse encuadrado antes de capturar
 const UI_REFRESH_MS = 100;
 
-type Options = {
+async function warmUpSilentFace() {
+  try {
+    await fetch("/api/warmup");
+  } catch {
+    // Si falla, el primer análisis solo tardará más
+  }
+}
+
+type Options<T> = {
   // Recibe el frame capturado (JPEG en data URL) y devuelve el veredicto
-  analyze: (shot: string) => Promise<LivenessResponse>;
+  analyze: (shot: string) => Promise<T>;
 };
 
-export function useLivenessCapture({ analyze }: Options) {
+export function useLivenessCapture<T>({ analyze }: Options<T>) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const detectorRef = useRef<FaceDetector | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -38,7 +46,7 @@ export function useLivenessCapture({ analyze }: Options) {
   const [issue, setIssue] = useState<FramingIssue>("none");
   const [hold, setHold] = useState(0);
   const [shot, setShot] = useState<string | null>(null); // imagen capturada
-  const [response, setResponse] = useState<LivenessResponse | null>(null);
+  const [response, setResponse] = useState<T | null>(null);
 
   const stopLoop = useCallback(() => {
     cancelAnimationFrame(rafRef.current);
@@ -141,6 +149,7 @@ export function useLivenessCapture({ analyze }: Options) {
 
   const start = useCallback(async () => {
     setPhase("requesting");
+    void warmUpSilentFace(); // por si la instancia se volvió a apagar desde que se abrió la página
 
     // El detector se carga solo la primera vez
     const loadDetector = async () => {
@@ -188,6 +197,10 @@ export function useLivenessCapture({ analyze }: Options) {
     setResponse(null);
     setPhase("idle");
   }, [releaseCamera]);
+
+  useEffect(() => {
+    void warmUpSilentFace();
+  }, []);
 
   useEffect(() => {
     return () => {
