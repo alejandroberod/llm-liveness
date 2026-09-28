@@ -1,13 +1,14 @@
-import type { LivenessResponse } from "./types";
+import type { CompareResponse } from "./types";
 
-const ENDPOINT = "/api/analyze";
+// Corre el LLM y Silent Face en paralelo y devuelve ambos más la fusión
+const ENDPOINT = "/api/compare";
 
 async function dataUrlToFile(dataUrl: string) {
   const blob = await fetch(dataUrl).then((r) => r.blob());
   return new File([blob], "selfie.jpg", { type: blob.type || "image/jpeg" });
 }
 
-export async function analyzeShot(shot: string): Promise<LivenessResponse> {
+export async function analyzeShot(shot: string): Promise<CompareResponse> {
   const form = new FormData();
   form.append("image", await dataUrlToFile(shot));
 
@@ -17,5 +18,5 @@ export async function analyzeShot(shot: string): Promise<LivenessResponse> {
   if (!res.ok) {
     throw new Error(data?.error ?? `El análisis falló (HTTP ${res.status})`);
   }
-  return data as LivenessResponse;
+  return data as CompareResponse;
 }

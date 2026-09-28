@@ -28,10 +28,12 @@ export default function FaceDetection() {
         analyzing={phase === "analyzing"}
         aligned={aligned}
         progress={capture.progress}
-        verdict={phase === "result" && response ? response.result.verdict : null}
+        verdict={phase === "result" && response ? response.combined.verdict : null}
       />
 
-      <div className="mt-[clamp(14px,2vh,28px)] grid w-full max-w-[520px] justify-items-center gap-[9px] text-center">
+      <div
+        className={`mt-[clamp(14px,2vh,28px)] grid w-full justify-items-center gap-[9px] text-center ${phase === "result" ? "max-w-[1040px]" : "max-w-[520px]"}`}
+      >
         {phase === "result" && response ? (
           <VerdictSummary response={response} onRetry={capture.scan} onContinue={capture.stop} />
         ) : (

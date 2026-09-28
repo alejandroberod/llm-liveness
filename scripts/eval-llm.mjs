@@ -1,12 +1,14 @@
 #!/usr/bin/env node
-// Evalúa el endpoint /api/analyze contra un dataset etiquetado.
+// Evalúa el endpoint /api/analyze (sólo LLM) o /api/compare (LLM, Silent Face y su fusión) contra un dataset etiquetado.
+// Con /api/compare los tres motores se miden sobre la MISMA corrida: el LLM no es determinista y
+// comparar corridas distintas engaña.
 //
 // Estructura esperada del dataset:
 //   dataset/live/*.jpg             -> selfies reales
 //   dataset/spoof/<subtipo>/*.jpg  -> ataques (print, screen, mask...). El subtipo es opcional.
 //
 // Uso:
-//   node scripts/eval-llm.mjs [--dir dataset] [--url http://localhost:3000/api/analyze]
+//   node scripts/eval-llm.mjs [--dir dataset] [--url http://localhost:3000/api/analyze | /api/compare]
 //     [--model gemini-3.5-flash] [--concurrency 3] [--limit 50]
 
 import fs from "node:fs";
@@ -45,6 +47,34 @@ function collectSamples(dir) {
   return samples;
 }
 
+const COMPARE = /\/compare\/?$/.test(new URL(args.url).pathname);
+const ENGINES = COMPARE ? ["combined", "silentface", "llm"] : ["llm"];
+
+// Mismo umbral que SF_DECISION en lib/fusion.ts
+const SF_DECISION = 0.5;
+
+const fromLlm = (r, latencyMs) => ({ predicted: r.verdict, spoofScore: r.spoofScore, latencyMs, detail: `${r.attackType} | ${r.reason}` });
+
+function engineResults(body, latencyMs) {
+  if (!COMPARE) return { llm: body.result ? fromLlm(body.result, latencyMs) : { predicted: "error", error: "Respuesta sin result" } };
+
+  const { llm, silentFace: sf, combined } = body;
+  return {
+    combined: { predicted: combined.verdict, spoofScore: combined.spoofScore, latencyMs, detail: combined.rule },
+    silentface: sf.ok
+      ? {
+          predicted: sf.data.realScore >= SF_DECISION ? "live" : "spoof",
+          spoofScore: Number((1 - sf.data.realScore).toFixed(4)),
+          latencyMs: sf.data.latencyMs,
+          detail: `${sf.data.label} p(real) ${sf.data.realScore}${sf.data.realScoreApprox ? " (estimada)" : ""}`,
+        }
+      : { predicted: "error", error: sf.error },
+    llm: llm.ok ? fromLlm(llm.data.result, llm.data.latencyMs) : { predicted: "error", error: llm.error },
+  };
+}
+
+const failAll = (error) => Object.fromEntries(ENGINES.map((e) => [e, { predicted: "error", error }]));
+
 async function analyze({ abs, ...sample }) {
   const form = new FormData();
   const type = MIME[path.extname(abs).toLowerCase()];
@@ -56,12 +86,10 @@ async function analyze({ abs, ...sample }) {
     const res = await fetch(args.url, { method: "POST", body: form });
     const body = await res.json().catch(() => ({}));
     const latencyMs = Math.round(performance.now() - started);
-    if (!res.ok || !body.result) {
-      return { ...sample, predicted: "error", latencyMs, error: body.error ?? `HTTP ${res.status}` };
-    }
-    return { ...sample, predicted: body.result.verdict, spoofScore: body.result.spoofScore, latencyMs, result: body.result };
+    if (!res.ok) return { ...sample, engines: failAll(body.error ?? `HTTP ${res.status}`) };
+    return { ...sample, engines: engineResults(body, latencyMs) };
   } catch (error) {
-    return { ...sample, predicted: "error", error: String(error.message ?? error) };
+    return { ...sample, engines: failAll(String(error.message ?? error)) };
   }
 }
 
@@ -80,13 +108,20 @@ async function runPool(items, concurrency) {
       while (next < items.length) {
         const i = next++;
         const r = (results[i] = await analyze(items[i]));
-        const status = r.predicted === "error" ? "ERR " : isCorrect(r) ? "ok  " : "FAIL";
-        console.log(`[${String(++done).padStart(4)}/${items.length}] ${status} ${r.label.padEnd(5)} -> ${r.predicted.padEnd(12)} ${String(r.spoofScore ?? "").padEnd(5)} ${r.file}`);
+        const cols = ENGINES.map((e) => {
+          const x = { ...r, ...r.engines[e] };
+          const status = x.predicted === "error" ? "ERR " : isCorrect(x) ? "ok  " : "FAIL";
+          return `${COMPARE ? `${e.slice(0, 4)} ` : ""}${status} ${x.predicted.padEnd(12)} ${String(x.spoofScore ?? "").padEnd(6)}`;
+        });
+        console.log(`[${String(++done).padStart(4)}/${items.length}] ${r.label.padEnd(5)} -> ${cols.join(" | ")} ${r.file}`);
       }
     }),
   );
   return results;
 }
+
+// Aplana los resultados de un motor para reportarlo como si fuera el único
+const forEngine = (results, engine) => results.map(({ engines, ...r }) => ({ ...r, ...engines[engine] }));
 
 function report(results) {
   const valid = results.filter((r) => r.predicted !== "error");
@@ -119,7 +154,7 @@ function report(results) {
   const misses = valid.filter((r) => !isCorrect(r));
   if (misses.length) {
     console.log(`\nClasificaciones incorrectas (${misses.length}):`);
-    for (const m of misses) console.log(`  ${m.label} -> ${m.predicted} (${m.spoofScore}) ${m.file}\n     ${m.result.attackType} | ${m.result.reason}`);
+    for (const m of misses) console.log(`  ${m.label} -> ${m.predicted} (${m.spoofScore}) ${m.file}\n     ${m.detail}`);
   }
 
   const errors = results.filter((r) => r.predicted === "error");
@@ -140,9 +175,12 @@ console.log(`Evaluando ${samples.length} imágenes contra ${args.url}${args.mode
 const results = await runPool(samples, Number(args.concurrency));
 
 const stamp = new Date().toISOString().replace(/[:.]/g, "-");
-const out = path.join("results", `llm-${args.model ?? "default"}-${stamp}.json`);
+const out = path.join("results", `${COMPARE ? "compare" : "llm"}-${args.model ?? "default"}-${stamp}.json`);
 fs.mkdirSync("results", { recursive: true });
 fs.writeFileSync(out, JSON.stringify(results, null, 2));
 
-console.log(`\nResultados guardados en ${out}\n`);
-report(results);
+console.log(`\nResultados guardados en ${out}`);
+for (const engine of ENGINES) {
+  console.log(COMPARE ? `\n=== ${engine} ===` : "");
+  report(forEngine(results, engine));
+}
