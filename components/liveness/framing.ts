@@ -3,16 +3,11 @@ import type { FramingIssue } from "./types";
 
 export const ALIGN_OK = 0.7; // encuadre mínimo para acumular estabilidad
 
-// Tamaño del rostro (ancho del bbox / lado corto del video). Silent Face recorta 2.7× y 4× el rostro:
-// por encima de 1/2.7 ≈ 37 % el recorte del modelo 2.7 no cabe y pierde el contexto con el que se entrenó.
-// FACE_MAX deja margen bajo ese límite; FACE_MIN evita que el rostro quede con muy pocos píxeles para el LLM.
-// Se miden con la caja de MediaPipe y el recorte usa la de RetinaFace: calibrar con `crops` de la respuesta de Silent Face.
+// Tamaño del rostro aceptado (ancho del bbox / lado corto del video).
+// Bajar FACE_MIN deja alejarse más; bajar FACE_MAX obliga a no acercarse tanto.
+// Ojo: Silent Face recorta 2.7× el rostro, así que por encima de ~0.37 ese recorte ya no cabe en la imagen.
 const FACE_MIN = 0.22;
-const FACE_MAX = 0.4;
-
-// Con el rostro al 30 %, el recorte 2.7× ocupa el 81 % del lado corto: el centro del rostro
-// sólo puede desviarse ~9 % antes de que el recorte choque con el borde y el rostro quede descentrado en él.
-const CENTER_MAX = 0.09;
+const FACE_MAX = 0.5;
 
 export const clamp01 = (n: number) => Math.max(0, Math.min(1, n));
 
@@ -31,7 +26,7 @@ export function evaluateFraming(d: Detection, vw: number, vh: number): { align: 
   // Centrado: distancia del centro del rostro al centro del video
   const dx = (box.originX + box.width / 2 - vw / 2) / side;
   const dy = (box.originY + box.height / 2 - vh / 2) / side;
-  const center = band(Math.hypot(dx, dy), 0, CENTER_MAX);
+  const center = clamp01(1 - Math.max(0, Math.hypot(dx, dy) - 0.06) / 0.25);
 
   // Tamaño: ancho del rostro respecto a la zona visible
   const ratio = box.width / side;
