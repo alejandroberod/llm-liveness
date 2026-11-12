@@ -70,17 +70,16 @@ export default function VerdictSummary({ response, onRetry, onContinue }: Props)
         <VerdictCard engine="Liveness Model" outcome={silentFaceOutcome(response.silentFace)} />
       </div>
 
-      {combined.verdict === "live" ? (
-        <OutlineButton onClick={onContinue} className="mt-4 justify-self-center px-[22px] py-3 text-[14.5px]">
-          <CheckIcon size={17} />
-          <span>Continuar</span>
-        </OutlineButton>
-      ) : (
-        <OutlineButton onClick={onRetry} className="mt-4 justify-self-center px-[22px] py-3 text-[14.5px]">
+      <div className="mt-4 flex flex-wrap justify-center gap-3">
+        <OutlineButton onClick={onRetry} className="px-[22px] py-3 text-[14.5px]">
           <ArrowCounterClockwiseIcon size={17} />
           <span>Intentar de nuevo</span>
         </OutlineButton>
-      )}
+        <OutlineButton onClick={onContinue} className="px-[22px] py-3 text-[14.5px]">
+          <CheckIcon size={17} />
+          <span>Continuar</span>
+        </OutlineButton>
+      </div>
     </>
   );
 }
