@@ -78,6 +78,8 @@ export function useLivenessCapture<T>({ analyze }: Options<T>) {
     ctx.drawImage(v, 0, 0, w, h);
     const dataUrl = canvas.toDataURL("image/jpeg", 0.95); // convierte el canvas en base64
 
+    // Con el frame ya en memoria no hace falta la cámara; reintentar la vuelve a pedir
+    releaseCamera();
     setShot(dataUrl);
     setHold(HOLD_SECONDS);
     setPhase("analyzing");
@@ -93,7 +95,7 @@ export function useLivenessCapture<T>({ analyze }: Options<T>) {
       console.error("Falló el análisis de liveness", e);
       setPhase("error");
     }
-  }, [stopLoop]);
+  }, [stopLoop, releaseCamera]);
 
   // Bucle: detectar en cada frame, evaluar el encuadre y acumular estabilidad
   const startLoop = useCallback(() => {

@@ -35,7 +35,7 @@ export default function FaceDetection() {
         className={`mt-[clamp(14px,2vh,28px)] grid w-full justify-items-center gap-[9px] text-center ${phase === "result" ? "max-w-[1040px]" : "max-w-[520px]"}`}
       >
         {phase === "result" && response ? (
-          <VerdictSummary response={response} onRetry={capture.scan} onContinue={capture.stop} />
+          <VerdictSummary response={response} onRetry={capture.start} onContinue={capture.stop} />
         ) : (
           phase !== "result" && (
             <ScanPrompt

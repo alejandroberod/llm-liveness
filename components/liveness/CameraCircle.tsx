@@ -49,7 +49,8 @@ export default function CameraCircle({ videoRef, hasStream, shot, failed, analyz
             <WarningIcon size={34} className="text-[oklch(0.7_0.125_25)]" />
           </div>
         ) : (
-          !hasStream && (
+          !hasStream &&
+          !shot && (
             <div className="absolute inset-0 flex items-center justify-center bg-[repeating-linear-gradient(135deg,#1b1e2e_0_7px,#171a28_7px_14px)]">
               <VideoCameraSlashIcon size={34} className="text-[#75798c]" />
             </div>
